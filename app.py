@@ -8,11 +8,11 @@ st.set_page_config(page_title="CSE Stock Terminal", layout="wide")
 # Custom CSS for Left Alignment
 st.markdown("""
     <style>
-    /* Force left alignment for all cells */
+    /* Force left alignment for the header and the cells */
     [data-testid="stDataFrame"] td {
         text-align: left !important;
     }
-    .main {
+    [data-testid="stHeader"] {
         background-color: #f5f7f9;
     }
     </style>
@@ -39,11 +39,8 @@ def get_cse_market_data():
         clean_df = df[['name', 'symbol', price_col]].copy()
         clean_df.columns = ['Company Name', 'Symbol', 'Price (Rs.)']
         
-        # Force Price to be a Float (Number) and remove any non-numeric characters
+        # Force Price to be a Float (Number)
         clean_df['Price (Rs.)'] = pd.to_numeric(clean_df['Price (Rs.)'], errors='coerce')
-        
-        # Remove any rows where price is missing
-        clean_df = clean_df.dropna(subset=['Price (Rs.)'])
         
         # Clean up company names
         clean_df['Company Name'] = clean_df['Company Name'].str.strip()
@@ -74,9 +71,7 @@ if not df_market.empty:
     # Reset index to start from 1
     display_df.index = range(1, len(display_df) + 1)
 
-    # --- 4. THE DATA TABLE ---
-    # We use 'format="%f"' but let Streamlit handle the thousands separator 
-    # to avoid the instruction text error you saw.
+    # --- 4. THE DATA TABLE (With Forced Commas) ---
     st.dataframe(
         display_df,
         use_container_width=True,
@@ -87,12 +82,13 @@ if not df_market.empty:
             "Price (Rs.)": st.column_config.NumberColumn(
                 "Price (Rs.)",
                 width="medium",
-                format="%.2f" # This ensures two decimal points
+                # This format forces the comma and 2 decimal places
+                format="%0,.2f" 
             )
         }
     )
 
-    st.info(f"✅ Total Stocks: {len(df_market)} | Click headers to sort | Refreshes every 5 Mins")
+    st.info(f"✅ Total Stocks: {len(df_market)} | Data refreshes every 5 Mins")
 else:
     st.warning("🔄 Attempting to reconnect...")
 
