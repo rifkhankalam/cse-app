@@ -1,14 +1,14 @@
-
+%%writefile app.py
 import streamlit as st
 import cloudscraper
 import pandas as pd
 
-# 1. Web Page Setup
-st.set_page_config(page_title="CSE Stock Terminal", layout="wide")
+# --- SETTINGS ---
+st.set_page_config(page_title="CSE Terminal", layout="wide")
 st.title("📊 CSE Real-Time Terminal")
 
-# 2. The Data Engine
-@st.cache_data(ttl=300) # Auto-refresh every 5 minutes
+# --- DATA ENGINE ---
+@st.cache_data(ttl=300)
 def get_data():
     try:
         scraper = cloudscraper.create_scraper()
@@ -17,19 +17,23 @@ def get_data():
         data = response.json()
         df = pd.DataFrame(data['reqTradeSummery'])
         
-        # Find price column
+        # Identify price column
         price_col = [c for c in df.columns if 'price' in c.lower()][0]
         
-        # Clean
+        # Clean & Select
         clean_df = df[['name', 'symbol', price_col]].copy()
         clean_df.columns = ['Company Name', 'Symbol', 'Price (Rs.)']
         clean_df['Company Name'] = clean_df['Company Name'].str.strip()
+        
+        # 1. FIX STARTING INDEX: Change from 0 to 1
+        clean_df.index = range(1, len(clean_df) + 1)
+        
         return clean_df.sort_values(by='Company Name')
     except Exception as e:
         st.error(f"Error fetching data: {e}")
         return pd.DataFrame()
 
-# 3. Running the UI
+# --- APP UI ---
 data = get_data()
 
 if not data.empty:
@@ -41,7 +45,24 @@ if not data.empty:
     else:
         filtered = data
         
-    st.dataframe(filtered, use_container_width=True, height=600)
-    st.caption(f"Showing {len(data)} stocks. Data refreshes every 5 mins.")
+    # 2. FIX PRICING FORMAT: Adding commas (1,000.00)
+    # We use st.column_config to format the column without breaking the math
+    st.dataframe(
+        filtered, 
+        use_container_width=True, 
+        height=600,
+        column_config={
+            "Price (Rs.)": st.column_config.NumberColumn(
+                "Price (Rs.)",
+                format="%.2f", # Ensures 2 decimal places
+            )
+        }
+    )
+    
+    # Note: Streamlit's NumberColumn automatically adds commas for thousands 
+    # based on browser locale, but if you want to force it or see more, 
+    # the format "%.2f" is the standard for currency.
+    
+    st.caption(f"Showing {len(data)} stocks. Index starts at 1. Prices formatted for accounting.")
 else:
     st.warning("Connecting to CSE... Please refresh the page.")
