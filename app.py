@@ -1,4 +1,3 @@
-%%writefile app.py
 import streamlit as st
 import cloudscraper
 import pandas as pd
@@ -25,10 +24,13 @@ def get_data():
         clean_df.columns = ['Company Name', 'Symbol', 'Price (Rs.)']
         clean_df['Company Name'] = clean_df['Company Name'].str.strip()
         
-        # 1. FIX STARTING INDEX: Change from 0 to 1
+        # Sort first so the index is alphabetical
+        clean_df = clean_df.sort_values(by='Company Name')
+        
+        # FIX STARTING INDEX: Change from 0 to 1
         clean_df.index = range(1, len(clean_df) + 1)
         
-        return clean_df.sort_values(by='Company Name')
+        return clean_df
     except Exception as e:
         st.error(f"Error fetching data: {e}")
         return pd.DataFrame()
@@ -45,8 +47,7 @@ if not data.empty:
     else:
         filtered = data
         
-    # 2. FIX PRICING FORMAT: Adding commas (1,000.00)
-    # We use st.column_config to format the column without breaking the math
+    # FIX PRICING FORMAT: Adding commas (1,000.00)
     st.dataframe(
         filtered, 
         use_container_width=True, 
@@ -54,14 +55,10 @@ if not data.empty:
         column_config={
             "Price (Rs.)": st.column_config.NumberColumn(
                 "Price (Rs.)",
-                format="%.2f", # Ensures 2 decimal places
+                format="%.2f", 
             )
         }
     )
-    
-    # Note: Streamlit's NumberColumn automatically adds commas for thousands 
-    # based on browser locale, but if you want to force it or see more, 
-    # the format "%.2f" is the standard for currency.
     
     st.caption(f"Showing {len(data)} stocks. Index starts at 1. Prices formatted for accounting.")
 else:
