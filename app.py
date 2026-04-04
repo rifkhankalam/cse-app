@@ -5,9 +5,13 @@ import pandas as pd
 # --- 1. APP CONFIGURATION ---
 st.set_page_config(page_title="CSE Stock Terminal", layout="wide")
 
-# Custom CSS for a professional look
+# Custom CSS for Left Alignment and Styling
 st.markdown("""
     <style>
+    /* Force text in the table to align left */
+    [data-testid="stTable"] td, [data-testid="stDataFrame"] td {
+        text-align: left !important;
+    }
     .main {
         background-color: #f5f7f9;
     }
@@ -17,7 +21,7 @@ st.markdown("""
 st.title("📊 CSE Real-Time Terminal")
 st.subheader("Colombo Stock Exchange - Market Overview")
 
-# --- 2. DATA ENGINE (The Scraper) ---
+# --- 2. DATA ENGINE ---
 @st.cache_data(ttl=300) 
 def get_cse_market_data():
     try:
@@ -36,11 +40,11 @@ def get_cse_market_data():
         clean_df.columns = ['Company Name', 'Symbol', 'Price (Rs.)']
         clean_df['Company Name'] = clean_df['Company Name'].str.strip()
         
-        # Sort Alphabetically
-        clean_df = clean_df.sort_values(by='Company Name')
-        
-        # Ensure Price is a number for formatting
+        # Ensure Price is a number for sorting (No strings here!)
         clean_df['Price (Rs.)'] = pd.to_numeric(clean_df['Price (Rs.)'], errors='coerce')
+        
+        # Default Sort: A-Z
+        clean_df = clean_df.sort_values(by='Company Name')
         
         return clean_df
     except Exception as e:
@@ -53,7 +57,7 @@ df_market = get_cse_market_data()
 if not df_market.empty:
     search_query = st.text_input("🔍 Search by Company Name or Symbol (e.g., VPEL, ACL)")
 
-    # Filter data
+    # Filter data based on search
     if search_query:
         display_df = df_market[
             df_market['Company Name'].str.contains(search_query, case=False) | 
@@ -62,17 +66,32 @@ if not df_market.empty:
     else:
         display_df = df_market.copy()
 
-    # --- 4. ACCOUNTING FORMATTING ---
-    # We create a display version with commas, while keeping the original for logic
-    display_df['Price (Rs.)'] = display_df['Price (Rs.)'].map('{:,.2f}'.format)
-    
     # Reset index to start from 1
     display_df.index = range(1, len(display_df) + 1)
 
-    # Show the table
-    st.table(display_df) # Using st.table for fixed accounting-style display
+    # --- 4. ADVANCED DATAFRAME (Sorting + Formatting) ---
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        height=700,
+        column_config={
+            "Company Name": st.column_config.TextColumn(
+                "Company Name",
+                width="large",
+            ),
+            "Symbol": st.column_config.TextColumn(
+                "Symbol",
+                width="medium",
+            ),
+            "Price (Rs.)": st.column_config.NumberColumn(
+                "Price (Rs.)",
+                format="#,##0.2f", # Adds commas and 2 decimals: 1,000.00
+                width="medium",
+            )
+        }
+    )
 
-    st.info(f"✅ Total Stocks: {len(df_market)} | Data refreshes every 5 Minutes")
+    st.info(f"✅ Total Stocks: {len(df_market)} | Click headers to sort A-Z or Price | Refreshes every 5 Mins")
 else:
     st.warning("🔄 Attempting to reconnect...")
 
