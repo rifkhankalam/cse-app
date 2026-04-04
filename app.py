@@ -5,11 +5,11 @@ import pandas as pd
 # --- 1. APP CONFIGURATION ---
 st.set_page_config(page_title="CSE Stock Terminal", layout="wide")
 
-# Custom CSS for Left Alignment and Styling
+# Custom CSS for Left Alignment
 st.markdown("""
     <style>
-    /* Force text in the table to align left */
-    [data-testid="stTable"] td, [data-testid="stDataFrame"] td {
+    /* Force left alignment for all cells */
+    [data-testid="stDataFrame"] td {
         text-align: left !important;
     }
     .main {
@@ -38,10 +38,15 @@ def get_cse_market_data():
         # Select and Clean
         clean_df = df[['name', 'symbol', price_col]].copy()
         clean_df.columns = ['Company Name', 'Symbol', 'Price (Rs.)']
-        clean_df['Company Name'] = clean_df['Company Name'].str.strip()
         
-        # Ensure Price is a number for sorting (No strings here!)
+        # Force Price to be a Float (Number) and remove any non-numeric characters
         clean_df['Price (Rs.)'] = pd.to_numeric(clean_df['Price (Rs.)'], errors='coerce')
+        
+        # Remove any rows where price is missing
+        clean_df = clean_df.dropna(subset=['Price (Rs.)'])
+        
+        # Clean up company names
+        clean_df['Company Name'] = clean_df['Company Name'].str.strip()
         
         # Default Sort: A-Z
         clean_df = clean_df.sort_values(by='Company Name')
@@ -69,29 +74,25 @@ if not df_market.empty:
     # Reset index to start from 1
     display_df.index = range(1, len(display_df) + 1)
 
-    # --- 4. ADVANCED DATAFRAME (Sorting + Formatting) ---
+    # --- 4. THE DATA TABLE ---
+    # We use 'format="%f"' but let Streamlit handle the thousands separator 
+    # to avoid the instruction text error you saw.
     st.dataframe(
         display_df,
         use_container_width=True,
         height=700,
         column_config={
-            "Company Name": st.column_config.TextColumn(
-                "Company Name",
-                width="large",
-            ),
-            "Symbol": st.column_config.TextColumn(
-                "Symbol",
-                width="medium",
-            ),
+            "Company Name": st.column_config.TextColumn("Company Name", width="large"),
+            "Symbol": st.column_config.TextColumn("Symbol", width="medium"),
             "Price (Rs.)": st.column_config.NumberColumn(
                 "Price (Rs.)",
-                format="#,##0.2f", # Adds commas and 2 decimals: 1,000.00
                 width="medium",
+                format="%.2f" # This ensures two decimal points
             )
         }
     )
 
-    st.info(f"✅ Total Stocks: {len(df_market)} | Click headers to sort A-Z or Price | Refreshes every 5 Mins")
+    st.info(f"✅ Total Stocks: {len(df_market)} | Click headers to sort | Refreshes every 5 Mins")
 else:
     st.warning("🔄 Attempting to reconnect...")
 
