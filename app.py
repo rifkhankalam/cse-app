@@ -1,85 +1,85 @@
 import streamlit as st
 import pandas as pd
 import pandas_ta as ta
+import cloudscraper
 
-# --- 1. SET PAGE CONFIG ---
+# --- 1. PAGE CONFIGURATION ---
 st.set_page_config(
     page_title="CSE Insider Terminal",
     page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-# --- 2. CUSTOM CSS FOR A "TERMINAL" LOOK ---
+# --- 2. PROFESSIONAL TERMINAL STYLING ---
 st.markdown("""
     <style>
-    .main { background-color: #0e1117; color: #ffffff; }
-    div[data-testid="stMetricValue"] { font-size: 24px; color: #00ffcc; }
-    .stDataFrame { border: 1px solid #30363d; border-radius: 10px; }
-    /* Style for the search box */
-    .stTextInput input { background-color: #161b22; color: white; border: 1px solid #30363d; }
+    .main { background-color: #0e1117; }
+    [data-testid="stMetricValue"] { font-size: 28px; color: #00ffcc !important; }
+    .stDataFrame { border: 1px solid #30363d; border-radius: 8px; }
     </style>
     """, unsafe_allow_html=True)
 
 # --- 3. SIDEBAR NAVIGATION ---
 with st.sidebar:
     st.title("🛡️ Solid Platform")
-    st.subheader("Filters & Controls")
-    
-    view_mode = st.radio("Select View", ["Market Overview", "RSI Alerts", "My Watchlist"])
+    st.caption("Accounting & Market Analytics")
     st.divider()
     
-    rsi_filter = st.slider("Min RSI (Oversold)", 0, 100, 30)
-    price_range = st.slider("Price Range (Rs.)", 0, 2000, (0, 500))
+    st.subheader("Control Panel")
+    view_mode = st.selectbox("View Mode", ["Live Market", "RSI Alerts", "Watchlist"])
+    rsi_threshold = st.slider("RSI Buy Signal (Oversold)", 10, 50, 30)
     
-    st.info("Connected to: CSE_Market_Database")
+    st.divider()
+    st.info("Connected to CSE via Google Sheets")
 
-# --- 4. TOP METRIC BAR ---
-col1, col2, col3, col4 = st.columns(4)
+# --- 4. DASHBOARD HEADER ---
+st.title("📈 Market Intelligence Terminal")
+col1, col2, col3 = st.columns(3)
+
+# Placeholder metrics until we link the live sheet tomorrow
 with col1:
-    st.metric("Market Status", "OPEN", delta="Live Feed")
+    st.metric("Market Status", "CLOSED", delta="Weekend")
 with col2:
-    st.metric("Stocks Tracked", "284", delta="+2 Today")
+    st.metric("Last Data Point", "2026-04-02", delta="Thursday")
 with col3:
-    st.metric("Avg. Market RSI", "52.4", delta="-1.2%")
-with col4:
-    st.metric("Last Sync", "17:00 SLT")
+    st.metric("System Health", "Optimal", delta="Connected")
 
 st.divider()
 
-# --- 5. MAIN DATA DISPLAY ---
-st.subheader(f"📊 {view_mode}")
-
-# (Temporary Data Load - We will link your Google Sheet here tomorrow)
-# This is a sample to show you the new UI design
-data = {
-    "Symbol": ["JKH.N0000", "LOLC.N0000", "HAYL.N0000", "DIAL.N0000"],
-    "Company Name": ["John Keells Holdings", "LOLC Holdings", "Hayleys PLC", "Dialog Axiata"],
-    "Price (Rs.)": [192.50, 445.00, 88.20, 11.40],
-    "RSI (14)": [68, 28, 45, 32],
-    "Trend": ["Neutral", "OVERSOLD", "Neutral", "Neutral"]
-}
-df = pd.DataFrame(data)
-
-# Filter logic for the UI demo
-filtered_df = df[(df['Price (Rs.)'] >= price_range[0]) & (df['Price (Rs.)'] <= price_range[1])]
-
-# --- 6. THE STYLED TABLE ---
-st.dataframe(
-    filtered_df,
-    use_container_width=True,
-    height=500,
-    column_config={
-        "Price (Rs.)": st.column_config.NumberColumn(format="Rs. %.2f"),
-        "RSI (14)": st.column_config.ProgressColumn(
-            "Technical RSI",
-            help="30 is Oversold (Buy), 70 is Overbought (Sell)",
-            min_value=0,
-            max_value=100,
-            format="%f"
-        ),
-        "Trend": st.column_config.TextColumn("Signal")
+# --- 5. DATA ENGINE (The "Solid" Logic) ---
+try:
+    # Creating a clean sample for the UI to prevent "Oh No" errors
+    sample_data = {
+        "Symbol": ["JKH.N0000", "LOLC.N0000", "VPEL.N0000", "HAYL.N0000", "DIAL.N0000"],
+        "Name": ["John Keells", "LOLC Holdings", "Vidan Pathirana", "Hayleys PLC", "Dialog Axiata"],
+        "Last Price": [192.50, 445.00, 14.50, 88.20, 11.40],
+        "RSI_14": [65, 28, 35, 52, 31]
     }
-)
+    df = pd.DataFrame(sample_data)
 
-st.success("💡 Tip: Stocks with RSI under 30 are statistically primed for a mid-term bounce.")
+    # Logic: Mark "BUY" if RSI is below the slider value
+    df['Signal'] = df['RSI_14'].apply(lambda x: "🟢 BUY" if x <= rsi_threshold else "⚪ HOLD")
+
+    # --- 6. RENDER THE TABLE ---
+    st.subheader(f"📊 {view_mode}")
+    
+    st.dataframe(
+        df,
+        use_container_width=True,
+        column_config={
+            "Last Price": st.column_config.NumberColumn(format="Rs. %.2f"),
+            "RSI_14": st.column_config.ProgressColumn(
+                "Relative Strength Index",
+                min_value=0, max_value=100,
+                format="%f"
+            ),
+            "Signal": st.column_config.TextColumn("Market Action")
+        },
+        hide_index=True
+    )
+
+except Exception as e:
+    st.error(f"Engine Error: {e}")
+    st.warning("Please check if requirements.txt includes: pandas, pandas-ta, and streamlit.")
+
+st.caption("Note: Live data sync occurs every weekday at 5:00 PM SL Time.")
