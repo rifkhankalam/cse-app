@@ -1,12 +1,11 @@
 import streamlit as st
 import pandas as pd
-import pandas_ta as ta
 import numpy as np
 
-# --- 1. PAGE CONFIGURATION ---
+# --- 1. PAGE CONFIG ---
 st.set_page_config(page_title="Solid Platform | CSE Terminal", page_icon="📈", layout="wide")
 
-# --- 2. TERMINAL STYLING ---
+# --- 2. STYLING ---
 st.markdown("""
     <style>
     .main { background-color: #0e1117; color: #ffffff; }
@@ -23,8 +22,8 @@ with st.sidebar:
     view_mode = st.selectbox("View Mode", ["Live Market", "RSI Alerts"])
     rsi_threshold = st.slider("RSI Buy Signal (Oversold)", 10, 50, 30)
 
-# --- 4. DATA LOADING ENGINE ---
-@st.cache_data(ttl=10) # Checks every 10 seconds while we are debugging
+# --- 4. DATA ENGINE ---
+@st.cache_data(ttl=10)
 def load_data():
     try:
         SHEET_ID = "1YpLpgj7BcxYn_70c0XUv_L-PtiboYY-uJlQVqiSZXi0"
@@ -34,24 +33,25 @@ def load_data():
         # Clean Column Names
         df.columns = [c.strip() for c in df.columns]
         
-        # CLEANING: Remove commas and convert to numbers for all date columns
-        date_cols = [c for c in df.columns if c != 'Symbol']
+        # Identify date columns (anything that isn't Symbol or Name)
+        exclude = ['Symbol', 'Name']
+        date_cols = [c for c in df.columns if c not in exclude]
+        
+        # Clean numeric data (remove commas)
         for col in date_cols:
-            # Convert to string, remove commas, then to numeric
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce')
             
-        return df
+        return df, date_cols
     except Exception as e:
         st.error(f"⚠️ Connection Error: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(), []
 
-df_live = load_data()
+df_live, date_cols = load_data()
 
-# --- 5. DASHBOARD HEADER ---
+# --- 5. HEADER ---
 st.title("📈 Market Intelligence Terminal")
-if not df_live.empty:
+if not df_live.empty and date_cols:
     col1, col2, col3 = st.columns(3)
-    date_cols = [c for c in df_live.columns if c != 'Symbol']
     with col1: st.metric("Market Status", "CLOSED", delta="Weekend")
     with col2: st.metric("Last Data Point", date_cols[-1], delta="Confirmed")
     with col3: st.metric("Stocks Tracked", len(df_live), delta="Live Feed")
@@ -60,18 +60,19 @@ st.divider()
 
 # --- 6. PROCESSING ---
 try:
-    if not df_live.empty:
-        date_cols = [c for c in df_live.columns if c != 'Symbol']
-        
+    if not df_live.empty and date_cols:
         # Create Display Table
-        display_df = df_live[['Symbol']].copy()
+        cols_to_show = ['Symbol']
+        if 'Name' in df_live.columns:
+            cols_to_show.append('Name')
+        
+        display_df = df_live[cols_to_show].copy()
         display_df['Price (Rs.)'] = df_live[date_cols[-1]]
         
-        # Calculate Momentum (RSI-style)
+        # Momentum Calculation
         if len(date_cols) >= 2:
             prev_price = df_live[date_cols[-2]]
             curr_price = df_live[date_cols[-1]]
-            # Avoid division by zero
             price_change = ((curr_price - prev_price) / prev_price.replace(0, np.nan)) * 100
             display_df['RSI_14'] = (50 + (price_change * 2)).fillna(50).clip(5, 95)
         else:
@@ -91,9 +92,10 @@ try:
             column_config={
                 "Price (Rs.)": st.column_config.NumberColumn(format="%.2f"),
                 "RSI_14": st.column_config.ProgressColumn("Momentum (RSI)", min_value=0, max_value=100),
+                "Name": st.column_config.TextColumn("Company Name", width="medium")
             }
         )
 except Exception as e:
     st.error(f"Analysis Error: {e}")
 
-st.caption("🛡️ Built for mid-term trading | Version 2.2")
+st.caption("🛡️ Built for mid-term trading | Version 2.3")
