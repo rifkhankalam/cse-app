@@ -16,6 +16,8 @@ st.markdown("""
     .main { background-color: #0e1117; }
     [data-testid="stMetricValue"] { font-size: 28px; color: #00ffcc !important; }
     .stDataFrame { border: 1px solid #30363d; border-radius: 8px; }
+    /* Style for sidebar text */
+    .css-17l243g { color: #ffffff; } 
     </style>
     """, unsafe_allow_html=True)
 
@@ -46,13 +48,13 @@ with col3:
 
 st.divider()
 
-# --- 5. DATA ENGINE (The "Solid" Logic) ---
+# --- 5. DATA ENGINE ---
 try:
     # Creating a clean sample for the UI to prevent "Oh No" errors
     sample_data = {
         "Symbol": ["JKH.N0000", "LOLC.N0000", "VPEL.N0000", "HAYL.N0000", "DIAL.N0000"],
         "Name": ["John Keells", "LOLC Holdings", "Vidan Pathirana", "Hayleys PLC", "Dialog Axiata"],
-        "Last Price": [192.50, 445.00, 14.50, 88.20, 11.40],
+        "Last Price": [192.50, 445.00, 14.54, 88.20, 11.40],
         "RSI_14": [65, 28, 35, 52, 31]
     }
     df = pd.DataFrame(sample_data)
@@ -80,6 +82,6 @@ try:
 
 except Exception as e:
     st.error(f"Engine Error: {e}")
-    st.warning("Please check if requirements.txt includes: pandas, pandas-ta, and streamlit.")
+    st.warning("Please check if requirements.txt is fully installed.")
 
 st.caption("Note: Live data sync occurs every weekday at 5:00 PM SL Time.")
