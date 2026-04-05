@@ -35,7 +35,7 @@ with st.sidebar:
     st.caption("Last Sync: 17:00 SL Time (Weekdays)")
 
 # --- 4. DATA ENGINE (The "Solid" Logic) ---
-@st.cache_data(ttl=3600) # Caches data for 1 hour to keep the app fast
+@st.cache_data(ttl=10) # Caches data for 1 hour to keep the app fast
 def load_data():
     try:
         # Your specific Google Sheet ID (Public CSV Export)
