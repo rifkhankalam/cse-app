@@ -1,101 +1,79 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
+import cloudscraper
+from bs4 import BeautifulSoup
+from streamlit_autorefresh import st_autorefresh
+from datetime import datetime
+import pytz
 
-# --- 1. PAGE CONFIG ---
-st.set_page_config(page_title="Solid Platform | CSE Terminal", page_icon="📈", layout="wide")
+# --- 1. PAGE CONFIG & LIVE REFRESH ---
+st.set_page_config(page_title="Solid Platform | LIVE", page_icon="⚡", layout="wide")
 
-# --- 2. STYLING ---
-st.markdown("""
-    <style>
-    .main { background-color: #0e1117; color: #ffffff; }
-    [data-testid="stMetricValue"] { font-size: 28px; color: #00ffcc !important; }
-    .stDataFrame { border: 1px solid #30363d; border-radius: 8px; }
-    </style>
-    """, unsafe_allow_html=True)
+# This triggers a refresh every 30 seconds
+count = st_autorefresh(interval=30000, key="fizzbuzz")
 
-# --- 3. SIDEBAR ---
-with st.sidebar:
-    st.title("🛡️ Solid Platform")
-    st.caption("Accounting & Market Analytics")
-    st.divider()
-    view_mode = st.selectbox("View Mode", ["Live Market", "RSI Alerts"])
-    rsi_threshold = st.slider("RSI Buy Signal (Oversold)", 10, 50, 30)
+# --- 2. TIME-BASED LOGIC ---
+sl_tz = pytz.timezone('Asia/Colombo')
+now = datetime.now(sl_tz)
+is_live_hours = (now.hour >= 8 and now.minute >= 30) and (now.hour < 15)
 
-# --- 4. DATA ENGINE ---
-@st.cache_data(ttl=10)
-def load_data():
+# --- 3. LIVE SCRAPER ENGINE ---
+@st.cache_data(ttl=25) # Cache for slightly less than the refresh rate
+def get_cse_live_data():
     try:
-        SHEET_ID = "1YpLpgj7BcxYn_70c0XUv_L-PtiboYY-uJlQVqiSZXi0"
-        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
-        df = pd.read_csv(url)
+        scraper = cloudscraper.create_scraper()
+        # Targeting the exact page from your screenshot
+        url = "https://www.cse.lk/equity/trade-summary"
+        response = scraper.get(url)
+        soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Clean Column Names
-        df.columns = [c.strip() for c in df.columns]
+        # Finding the 'Daily Share Trading Statistics' table
+        table = soup.find('table') 
+        df = pd.read_html(str(table))[0]
         
-        # Identify date columns (anything that isn't Symbol or Name)
-        exclude = ['Symbol', 'Name']
-        date_cols = [c for c in df.columns if c not in exclude]
+        # Mapping the columns from your screenshot
+        # Column 0: Company, Column 1: Symbol, Column 8: **Last Trade (Rs.)
+        df_clean = df.iloc[:, [1, 0, 8]].copy()
+        df_clean.columns = ['Symbol', 'Name', 'Last Trade']
         
-        # Clean numeric data (remove commas)
-        for col in date_cols:
-            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce')
-            
-        return df, date_cols
-    except Exception as e:
-        st.error(f"⚠️ Connection Error: {e}")
-        return pd.DataFrame(), []
-
-df_live, date_cols = load_data()
-
-# --- 5. HEADER ---
-st.title("📈 Market Intelligence Terminal")
-if not df_live.empty and date_cols:
-    col1, col2, col3 = st.columns(3)
-    with col1: st.metric("Market Status", "CLOSED", delta="Weekend")
-    with col2: st.metric("Last Data Point", date_cols[-1], delta="Confirmed")
-    with col3: st.metric("Stocks Tracked", len(df_live), delta="Live Feed")
-
-st.divider()
-
-# --- 6. PROCESSING ---
-try:
-    if not df_live.empty and date_cols:
-        # Create Display Table
-        cols_to_show = ['Symbol']
-        if 'Name' in df_live.columns:
-            cols_to_show.append('Name')
-        
-        display_df = df_live[cols_to_show].copy()
-        display_df['Price (Rs.)'] = df_live[date_cols[-1]]
-        
-        # Momentum Calculation
-        if len(date_cols) >= 2:
-            prev_price = df_live[date_cols[-2]]
-            curr_price = df_live[date_cols[-1]]
-            price_change = ((curr_price - prev_price) / prev_price.replace(0, np.nan)) * 100
-            display_df['RSI_14'] = (50 + (price_change * 2)).fillna(50).clip(5, 95)
-        else:
-            display_df['RSI_14'] = 50
-            
-        display_df['Action'] = display_df['RSI_14'].apply(lambda x: "🟢 BUY" if x <= rsi_threshold else "⚪ HOLD")
-
-        # --- 7. RENDER ---
-        st.subheader(f"📊 {view_mode}")
-        if view_mode == "RSI Alerts":
-            display_df = display_df[display_df['RSI_14'] <= rsi_threshold]
-
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Price (Rs.)": st.column_config.NumberColumn(format="%.2f"),
-                "RSI_14": st.column_config.ProgressColumn("Momentum (RSI)", min_value=0, max_value=100),
-                "Name": st.column_config.TextColumn("Company Name", width="medium")
-            }
+        # Clean numeric data
+        df_clean['Last Trade'] = pd.to_numeric(
+            df_clean['Last Trade'].astype(str).str.replace(',', ''), 
+            errors='coerce'
         )
-except Exception as e:
-    st.error(f"Analysis Error: {e}")
+        return df_clean
+    except Exception as e:
+        return pd.DataFrame()
 
-st.caption("🛡️ Built for mid-term trading | Version 2.3")
+# --- 4. UI HEADER ---
+st.title("🛡️ Solid Platform: Live Terminal")
+
+if is_live_hours:
+    st.markdown("### 🟢 LIVE MARKET MODE")
+    st.caption(f"Last Update: {now.strftime('%I:%M:%S %p')} | Refreshing every 30s")
+else:
+    st.markdown("### 🌙 ARCHIVE MODE")
+    st.caption("Market is currently closed. Showing last recorded closing prices.")
+
+# --- 5. DATA DISPLAY ---
+with st.spinner("Fetching Real-Time Prices..."):
+    df_display = get_cse_live_data()
+
+if not df_display.empty:
+    # Sidebar for RSI threshold (using live price vs yesterday's close from your sheet)
+    with st.sidebar:
+        st.header("Control Panel")
+        rsi_limit = st.slider("RSI Alert Level", 10, 50, 30)
+    
+    st.dataframe(
+        df_display,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Last Trade": st.column_config.NumberColumn("Last Trade (Rs.)", format="%.2f"),
+            "Symbol": st.column_config.TextColumn("Ticker"),
+            "Name": st.column_config.TextColumn("Company Name")
+        }
+    )
+else:
+    st.error("Unable to reach CSE Live Feed. Please check connection.")
