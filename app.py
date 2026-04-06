@@ -7,59 +7,50 @@ from datetime import datetime
 import pytz
 import time
 
-# --- 1. PAGE CONFIG ---
+# --- 1. PAGE CONFIG & REFRESH ---
 st.set_page_config(page_title="Solid Platform | LIVE", page_icon="📈", layout="wide")
-st_autorefresh(interval=30000, key="cse_bypass_heartbeat")
+st_autorefresh(interval=30000, key="cse_final_bypass")
 
 # --- 2. TIME LOGIC ---
 sl_tz = pytz.timezone('Asia/Colombo')
 now = datetime.now(sl_tz)
 is_live_hours = (now.weekday() < 5) and (now.hour >= 8 and now.hour < 15)
 
-# --- 3. ADVANCED BYPASS SCRAPER ---
+# --- 3. COLAB-STYLE BYPASS SCRAPER ---
 @st.cache_data(ttl=25)
 def get_cse_live_data():
     try:
-        # Mimicking a high-end desktop browser more precisely
+        # Exact configuration that works in Colab environments
         scraper = cloudscraper.create_scraper(
-            browser={
-                'browser': 'chrome',
-                'platform': 'windows',
-                'desktop': True
-            }
+            browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
         )
-        
         url = "https://www.cse.lk/equity/trade-summary"
         
-        # Adding a small human-like delay
-        time.sleep(1) 
-        response = scraper.get(url, timeout=25)
+        # Mimic human delay
+        time.sleep(1.5) 
+        response = scraper.get(url, timeout=30)
         
         if response.status_code != 200:
             return pd.DataFrame()
 
-        soup = BeautifulSoup(response.text, 'lxml')
-        # We look for the main stats table specifically
-        tables = pd.read_html(str(soup))
-        
+        # Parse tables
+        tables = pd.read_html(response.text)
         target_df = None
         for df in tables:
-            # Standardize columns for checking
-            cols = [str(c).strip() for c in df.columns]
-            # CSE uses double asterisks for the live trade column
-            if 'Symbol' in cols and any('Last Trade' in c for c in cols):
-                df.columns = cols # Apply cleaned names
+            # Look for the symbol column
+            if 'Symbol' in df.columns:
                 target_df = df
                 break
         
         if target_df is not None:
-            # Find the exact name of the Last Trade column (handling the asterisks)
+            # Clean headers
+            target_df.columns = [str(c).replace('*', '').strip() for c in target_df.columns]
             price_col = [c for c in target_df.columns if 'Last Trade' in c][0]
             
             df_clean = target_df[['Symbol', price_col]].copy()
             df_clean.columns = ['Symbol', 'Live Price']
             
-            # Clean numeric data
+            # FORCE NUMERIC: Remove commas and handle non-numeric strings
             df_clean['Live Price'] = pd.to_numeric(
                 df_clean['Live Price'].astype(str).str.replace(',', ''), 
                 errors='coerce'
@@ -68,17 +59,21 @@ def get_cse_live_data():
             
         return pd.DataFrame()
     except Exception as e:
-        st.sidebar.error(f"Bypass Attempt Failed: {e}")
         return pd.DataFrame()
 
-# --- 4. DATA LOADING ---
+# --- 4. DATA LOADING (GOOGLE SHEET) ---
 @st.cache_data(ttl=600)
 def load_sheet_data():
     try:
         SHEET_ID = "1YpLpgj7BcxYn_70c0XUv_L-PtiboYY-uJlQVqiSZXi0"
         url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
         df = pd.read_csv(url)
-        date_cols = [c.strip() for c in df.columns if c not in ['Symbol', 'Name']]
+        # Clean headers
+        df.columns = [c.strip() for c in df.columns]
+        # Force numeric on all date columns
+        date_cols = [c for c in df.columns if c not in ['Symbol', 'Name']]
+        for col in date_cols:
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce')
         return df, date_cols
     except:
         return pd.DataFrame(), []
@@ -89,34 +84,40 @@ st.title("🛡️ Solid Platform: Live Terminal")
 df_hist, hist_date_cols = load_sheet_data()
 df_live = get_cse_live_data()
 
-# Header Status
+# Status Row
 c1, c2, c3 = st.columns(3)
 with c1: st.metric("Market Status", "🟢 LIVE" if is_live_hours else "🌙 CLOSED")
-with c2: st.metric("Live Feed", "CONNECTED" if not df_live.empty else "BLOCKED", 
-                   delta="Bypass Active" if not df_live.empty else "Security Barrier")
-with c3: st.metric("Last Sync", now.strftime("%H:%M:%S"))
+with c2: 
+    status_text = "CONNECTED" if not df_live.empty else "STALLED"
+    st.metric("Live Feed", status_text)
+with c3: st.metric("System Refresh", now.strftime("%H:%M:%S"))
 
 st.divider()
 
-# --- 6. MERGE & DISPLAY ---
-if not df_hist.empty:
-    # Use your sheet as the base so we keep your custom names
+# --- 6. DATA MERGE & MATH ---
+if not df_hist.empty and hist_date_cols:
+    # Build base frame
     final_df = df_hist[['Symbol', 'Name', hist_date_cols[-1]]].copy()
     final_df.columns = ['Symbol', 'Name', 'Prev Close']
     
+    # Ensure 'Prev Close' is a float for math
+    final_df['Prev Close'] = pd.to_numeric(final_df['Prev Close'], errors='coerce')
+
     if not df_live.empty:
-        # Update the sheet data with the live scraped prices
         final_df = final_df.merge(df_live, on='Symbol', how='left')
-        # If live price is missing for a specific stock, keep the previous close
         final_df['Current'] = final_df['Live Price'].fillna(final_df['Prev Close'])
-        st.success(f"Successfully bypassed CSE block. Data fresh as of {now.strftime('%I:%M %p')}")
+        st.success("Live pricing synced.")
     else:
         final_df['Current'] = final_df['Prev Close']
-        st.warning("Bypass failed. Showing static data from Google Sheets.")
+        st.warning("Using static prices from Sheet.")
 
-    # Calculations
+    # FINAL MATH GUARD: Force 'Current' to numeric one last time
+    final_df['Current'] = pd.to_numeric(final_df['Current'], errors='coerce')
+    
+    # Now math will work:
     final_df['Change'] = ((final_df['Current'] - final_df['Prev Close']) / final_df['Prev Close']) * 100
     
+    # --- 7. DISPLAY ---
     st.dataframe(
         final_df[['Symbol', 'Name', 'Current', 'Change']],
         use_container_width=True,
@@ -126,3 +127,5 @@ if not df_hist.empty:
             "Change": st.column_config.NumberColumn("Day Change", format="%.2f%%")
         }
     )
+else:
+    st.error("Google Sheet structure error. Check Symbol/Name headers.")
