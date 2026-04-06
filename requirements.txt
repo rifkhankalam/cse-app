@@ -5,3 +5,5 @@ cloudscraper
 gspread
 google-auth
 pytz
+streamlit-autorefresh
+beautifulsoup4
