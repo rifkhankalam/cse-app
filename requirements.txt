@@ -7,3 +7,4 @@ google-auth
 pytz
 streamlit-autorefresh
 beautifulsoup4
+lxml
