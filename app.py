@@ -7,91 +7,60 @@ from datetime import datetime
 import pytz
 import numpy as np
 
-# --- 1. PAGE CONFIGURATION ---
-st.set_page_config(
-    page_title="Solid Platform | CSE Terminal", 
-    page_icon="📈", 
-    layout="wide"
-)
+# --- 1. PAGE CONFIG & AUTO-REFRESH ---
+st.set_page_config(page_title="Solid Platform | LIVE", page_icon="📈", layout="wide")
+st_autorefresh(interval=30000, key="cse_heartbeat")
 
-# --- 2. AUTO-REFRESH (30 Seconds) ---
-# This keeps the app live during market hours without manual refreshing
-st_autorefresh(interval=30000, key="cse_live_refresh")
-
-# --- 3. STYLING (Terminal Look) ---
-st.markdown("""
-    <style>
-    .main { background-color: #0e1117; color: #ffffff; }
-    [data-testid="stMetricValue"] { font-size: 28px; color: #00ffcc !important; }
-    .stDataFrame { border: 1px solid #30363d; border-radius: 8px; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- 4. TIME & MODE LOGIC ---
+# --- 2. TIME LOGIC ---
 sl_tz = pytz.timezone('Asia/Colombo')
 now = datetime.now(sl_tz)
-# Live Mode: Monday-Friday, 08:30 to 15:00
-is_weekday = now.weekday() < 5
-is_live_hours = is_weekday and (now.hour >= 8 and now.hour < 15)
-if now.hour == 8 and now.minute < 30:
-    is_live_hours = False
+is_live_hours = (now.weekday() < 5) and (now.hour >= 8 and now.hour < 15)
 
-# --- 5. DATA ENGINES ---
-
-@st.cache_data(ttl=20)
+# --- 3. THE REFINED SCRAPER ---
+@st.cache_data(ttl=25)
 def get_cse_live_data():
-    """Scrapes live prices directly from the CSE Trade Summary page."""
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
-        scraper = cloudscraper.create_scraper()
+        # Using a session to look more like a real browser
+        scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False})
         url = "https://www.cse.lk/equity/trade-summary"
-        response = scraper.get(url, headers=headers, timeout=15)
         
+        response = scraper.get(url, timeout=20)
         if response.status_code != 200:
             return pd.DataFrame()
 
-        # Parse tables using lxml engine
-        tables = pd.read_html(response.text)
-        df = None
-        for t in tables:
-            # Look for the table that actually contains stock symbols
-            if 'Symbol' in t.columns:
-                df = t
+        # Parse with BeautifulSoup to find the specific 'Summary' table
+        soup = BeautifulSoup(response.text, 'lxml')
+        tables = pd.read_html(str(soup))
+        
+        target_df = None
+        for df in tables:
+            # Clean columns immediately to check for 'Symbol'
+            df.columns = [str(c).replace('*', '').strip() for c in df.columns]
+            if 'Symbol' in df.columns and 'Last Trade (Rs.)' in df.columns:
+                target_df = df
                 break
         
-        if df is not None:
-            # Clean headers: Remove asterisks and spaces
-            df.columns = [str(c).replace('*', '').strip() for c in df.columns]
-            
-            # Select relevant columns based on your Trade Summary screenshot
-            # Some browsers see 'Company' or 'Company Name'
-            name_col = 'Company' if 'Company' in df.columns else df.columns[0]
-            
-            df_clean = df[['Symbol', name_col, 'Last Trade (Rs.)']].copy()
-            df_clean.columns = ['Symbol', 'Name', 'Price']
-            
-            # Data Cleaning: Remove commas and force to numeric
-            df_clean['Price'] = pd.to_numeric(
-                df_clean['Price'].astype(str).str.replace(',', ''), 
-                errors='coerce'
-            )
+        if target_df is not None:
+            # Extract and rename
+            df_clean = target_df[['Symbol', 'Last Trade (Rs.)']].copy()
+            df_clean.columns = ['Symbol', 'Live Price']
+            df_clean['Live Price'] = pd.to_numeric(df_clean['Live Price'].astype(str).str.replace(',', ''), errors='coerce')
             return df_clean
+            
         return pd.DataFrame()
     except Exception as e:
+        print(f"Scrape Error: {e}")
         return pd.DataFrame()
 
+# --- 4. DATA LOADING (SHEET) ---
 @st.cache_data(ttl=600)
-def load_historical_data():
-    """Loads your archived prices from the Google Sheet."""
+def load_sheet_data():
     try:
         SHEET_ID = "1YpLpgj7BcxYn_70c0XUv_L-PtiboYY-uJlQVqiSZXi0"
         url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
         df = pd.read_csv(url)
         df.columns = [c.strip() for c in df.columns]
-        
-        # Clean numeric columns (excluding Symbol/Name)
+        # Convert date columns to numeric
         date_cols = [c for c in df.columns if c not in ['Symbol', 'Name']]
         for col in date_cols:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce')
@@ -99,75 +68,49 @@ def load_historical_data():
     except:
         return pd.DataFrame(), []
 
-# --- 6. MAIN INTERFACE ---
-st.title("📈 Market Intelligence Terminal")
+# --- 5. MAIN UI ---
+st.title("🛡️ Solid Platform: Market Terminal")
 
-# Sidebar Controls
-with st.sidebar:
-    st.title("🛡️ Solid Platform")
-    st.caption("Accounting & Market Analytics")
-    st.divider()
-    view_mode = st.radio("Display Mode", ["Full Market", "Top Gainers", "Watchlist"])
-    rsi_threshold = st.slider("Momentum Alert (RSI)", 10, 70, 30)
-    st.info(f"Last System Heartbeat: {now.strftime('%H:%M:%S')}")
+df_hist, hist_date_cols = load_sheet_data()
+df_live_price = get_cse_live_data()
 
-# Execute Data Loading
-df_hist, hist_date_cols = load_historical_data()
-df_live = get_cse_live_data()
-
-# Status Metrics
-col1, col2, col3 = st.columns(3)
-with col1:
-    status = "🟢 LIVE" if is_live_hours else "🌙 CLOSED"
-    st.metric("Market Status", status, delta="Trade Summary Feed")
-with col2:
-    last_date = hist_date_cols[-1] if hist_date_cols else "N/A"
-    st.metric("Sheet Last Entry", last_date)
-with col3:
-    count = len(df_live) if not df_live.empty else len(df_hist)
-    st.metric("Stocks Tracked", count)
+# Header Metrics
+m1, m2, m3 = st.columns(3)
+with m1: st.metric("Market Status", "🟢 LIVE" if is_live_hours else "🌙 CLOSED")
+with m2: st.metric("Sheet Last Entry", hist_date_cols[-1] if hist_date_cols else "N/A")
+with m3: st.metric("System Time", now.strftime("%H:%M:%S"))
 
 st.divider()
 
-# --- 7. DATA MERGING & MOMENTUM ---
-try:
-    if not df_live.empty:
-        # We merge live prices with historical names/symbols for a complete view
-        display_df = df_live.copy()
-        
-        # Calculate intraday change if historical data exists
-        if not df_hist.empty and hist_date_cols:
-            last_close = df_hist[['Symbol', hist_date_cols[-1]]]
-            display_df = display_df.merge(last_close, on='Symbol', how='left')
-            display_df['Change %'] = ((display_df['Price'] - display_df[hist_date_cols[-1]]) / display_df[hist_date_cols[-1]]) * 100
+# --- 6. MERGING LOGIC ---
+if not df_hist.empty:
+    main_df = df_hist[['Symbol', 'Name', hist_date_cols[-1]]].copy()
+    main_df.columns = ['Symbol', 'Company Name', 'Prev Close']
     
-    elif not df_hist.empty:
-        # Fallback to historical data if live feed fails or market is closed
-        display_df = df_hist[['Symbol', 'Name']].copy()
-        display_df['Price'] = df_hist[hist_date_cols[-1]]
-        display_df['Change %'] = 0.0
+    if not df_live_price.empty:
+        # Merge live scrape into the sheet data
+        main_df = main_df.merge(df_live_price, on='Symbol', how='left')
+        main_df['Last Trade (Rs.)'] = main_df['Live Price'].fillna(main_df['Prev Close'])
+        st.success("Live Feed Connected")
+    else:
+        # Fallback
+        main_df['Last Trade (Rs.)'] = main_df['Prev Close']
         st.warning("Displaying static Archive data (Live feed unavailable).")
 
-    # --- 8. RENDER TABLE ---
-    st.subheader(f"📊 {view_mode}")
-    
-    # Simple RSI-style momentum indicator for the progress bar
-    # (Based on % change from last closing)
-    display_df['Momentum'] = (50 + (display_df.get('Change %', 0) * 2)).clip(5, 95)
+    # Calculate Intraday Change
+    main_df['Day Change'] = ((main_df['Last Trade (Rs.)'] - main_df['Prev Close']) / main_df['Prev Close']) * 100
+    main_df['Momentum'] = (50 + (main_df['Day Change'] * 5)).clip(5, 95)
 
+    # --- 7. DISPLAY ---
     st.dataframe(
-        display_df,
+        main_df[['Symbol', 'Company Name', 'Last Trade (Rs.)', 'Day Change', 'Momentum']],
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Price": st.column_config.NumberColumn("Last Trade (Rs.)", format="%.2f"),
-            "Change %": st.column_config.NumberColumn("Day Change", format="%.2f%%"),
-            "Momentum": st.column_config.ProgressColumn("Intraday Momentum", min_value=0, max_value=100),
-            "Name": st.column_config.TextColumn("Company Name", width="large")
+            "Last Trade (Rs.)": st.column_config.NumberColumn(format="%.2f"),
+            "Day Change": st.column_config.NumberColumn(format="%.2f%%"),
+            "Momentum": st.column_config.ProgressColumn(min_value=0, max_value=100)
         }
     )
-
-except Exception as e:
-    st.error(f"Operational Error: {e}")
-
-st.caption("🛡️ Built for mid-term trading | v2.5 (Live Auto-Refresh Enabled)")
+else:
+    st.error("Check Google Sheet Connection.")
